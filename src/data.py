@@ -3,6 +3,7 @@
 Data pipeline for US-Visa Prediction.
 Converts raw data into clean, ready-to-train data
 """
+
 import numpy as np
 import pandas as pd
 import joblib
@@ -18,7 +19,6 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from imblearn.over_sampling import SMOTE
 
-
 # Constants
 REFERENCE_YEAR = 2024
 RANDOM_STATE   = 42
@@ -31,6 +31,9 @@ ORDINAL_ORDER  = [['High School', "Bachelor's", "Master's", 'Doctorate']]
 ONEHOT_COLS    = ['continent', 'region_of_employment', 'unit_of_wage']
 NUM_COLS       = ['prevailing_wage_annual', 'no_of_employees', 'company_age']
 
+def binary_encode(X):
+    X = pd.DataFrame(X)
+    return X.apply(lambda col: (col == 'Y').astype(int)).values
 
 # Step 1: Load Data
 def load_data(path: str) -> pd.DataFrame:
@@ -38,17 +41,14 @@ def load_data(path: str) -> pd.DataFrame:
     print(f'Loaded: {df.shape[0]} rows, {df.shape[1]} columns')
     return df
 
-
 # Step 2: Drop Columns
 def drop_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df.drop(columns=COLS_TO_DROP, errors='ignore')
-
 
 # Step 3: Clean Data
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     df['no_of_employees'] = df['no_of_employees'].abs()
     return df
-
 
 # Step 4: Feature Engineering
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -74,10 +74,6 @@ def encode_target(df: pd.DataFrame):
 # Step 6: Build Preprocessor
 def build_preprocessor() -> ColumnTransformer:
 
-    def binary_encode(X):
-        X = pd.DataFrame(X)
-        return X.apply(lambda col: (col == 'Y').astype(int)).values
-
     numeric_pipe = Pipeline([
         ('transform', PowerTransformer(method='yeo-johnson')),
         ('scale',     StandardScaler())
@@ -85,7 +81,6 @@ def build_preprocessor() -> ColumnTransformer:
 
     return ColumnTransformer(
         transformers=[
-
             ('binary', FunctionTransformer(
                 binary_encode,
                 validate=False,
@@ -115,6 +110,7 @@ def prepare_data(data_path: str, save_dir: str = 'models/'):
 
     os.makedirs(save_dir, exist_ok=True)
 
+    # Load & process
     df = load_data(data_path)
     df = drop_columns(df)
     df = clean_data(df)
@@ -122,6 +118,7 @@ def prepare_data(data_path: str, save_dir: str = 'models/'):
 
     X, y = encode_target(df)
 
+    # Train/Test Split
     X_train, X_test, y_train, y_test = train_test_split(
         X, y,
         test_size=TEST_SIZE,
@@ -129,6 +126,7 @@ def prepare_data(data_path: str, save_dir: str = 'models/'):
         stratify=y
     )
 
+    # Preprocessing
     preprocessor = build_preprocessor()
     preprocessor.fit(X_train)
 
@@ -138,12 +136,14 @@ def prepare_data(data_path: str, save_dir: str = 'models/'):
     print("Processed Train Shape:", X_train_proc.shape)
     print("Processed Test Shape :", X_test_proc.shape)
 
+    # SMOTE (only on training)
     smote = SMOTE(random_state=RANDOM_STATE)
     X_train_bal, y_train_bal = smote.fit_resample(X_train_proc, y_train)
-    
+
     print(f"Balanced Train Shape: {X_train_bal.shape}")
 
-    joblib.dump(preprocessor, f'{save_dir}/preprocessor.pkl')
+    # Save preprocessor
+    joblib.dump(preprocessor, os.path.join(save_dir, 'preprocessor.pkl'))
     print(f'Preprocessor saved to {save_dir}/preprocessor.pkl')
 
     return X_train_bal, X_test_proc, y_train_bal, y_test
